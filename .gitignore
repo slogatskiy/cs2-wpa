@@ -9,3 +9,8 @@ data/raw/*.dem.gz
 data/raw/*.dem.bz2
 data/processed/
 !data/raw/.gitkeep
+
+# Regenerated artefacts (rebuild on real data)
+models/
+reports/
+data/raw/_unpack/
