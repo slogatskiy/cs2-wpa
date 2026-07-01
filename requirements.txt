@@ -1,0 +1,16 @@
+# Core parsing & data
+demoparser2      # CS2 .dem parser (LaihoE)
+polars           # fast dataframes (main workhorse)
+pandas           # interop / some libs expect it
+
+# Modeling (Phase 1+)
+scikit-learn     # calibration, metrics, splits
+lightgbm         # win-probability model
+
+# Viz / dashboard (Phase 3)
+matplotlib
+plotly
+streamlit
+
+# Notebooks
+jupyter

@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Data — demos are big, keep them out of git
+data/raw/*.dem
+data/raw/*.dem.gz
+data/raw/*.dem.bz2
+data/processed/
+!data/raw/.gitkeep
