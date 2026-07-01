@@ -13,9 +13,12 @@ Counter-Strike") to CS2's new demo format, volumetric smokes, and sub-tick.
 |------|------|--------|
 | **0** | Parse a `.dem` into event + per-tick tables | ✅ done |
 | **1A** | Build round *snapshots* (game state → round winner) | ✅ done |
-| **1B** | Win-probability model (LightGBM) + calibration | next |
-| **2** | WPA — attribute Δ win-prob to player actions | planned |
+| **1B** | Win-probability model (LightGBM) + calibration | ✅ code done · awaiting pro-demo batch |
+| **2** | WPA — attribute Δ win-prob to player actions | 🔜 next |
 | **3** | Streamlit dashboard + writeup | planned |
+
+> **Status:** pipeline verified end-to-end on a sample demo. Next step is a batch
+> of ~50-100 HLTV pro maps to train and calibrate the model for real, then WPA.
 
 ## Layout
 
