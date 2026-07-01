@@ -1,10 +1,19 @@
 """
-Run the feature builder over every demo in data/raw/ and write one combined
-snapshot table to data/processed/snapshots.parquet.
+Turn demos in data/raw/*.dem into round snapshots.
+
+Incremental & resumable: each demo's snapshots are cached to
+data/processed/snapshots/<demo>.parquet, so re-running skips demos already
+done. At the end everything is merged into data/processed/snapshots.parquet.
 
 Usage:
-    python scripts/build_dataset.py                # all *.dem in data/raw
-    python scripts/build_dataset.py path/to.dem    # a single demo
+    python scripts/build_dataset.py                 # process all new demos
+    python scripts/build_dataset.py path/to.dem     # a single demo
+    python scripts/build_dataset.py --purge         # delete each .dem after it
+                                                    # is successfully parsed
+                                                    # (frees disk for big demos)
+
+Typical big-batch flow: download a few 1GB demos → run with --purge → the raw
+.dem files are removed once parsed, so disk never fills up. Snapshots are tiny.
 """
 
 import sys
@@ -15,19 +24,25 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from cs2wpa.snapshots import build_round_snapshots  # noqa: E402
 
-OUT = Path("data/processed/snapshots.parquet")
+RAW = Path("data/raw")
+CACHE = Path("data/processed/snapshots")
+COMBINED = Path("data/processed/snapshots.parquet")
 
 
 def main(argv: list[str]) -> None:
-    if len(argv) > 1:
-        demos = [Path(argv[1])]
-    else:
-        demos = sorted(Path("data/raw").glob("*.dem"))
+    purge = "--purge" in argv
+    paths = [a for a in argv[1:] if not a.startswith("--")]
+    demos = [Path(paths[0])] if paths else sorted(RAW.glob("*.dem"))
     if not demos:
-        sys.exit("No demos found in data/raw/ — drop a .dem there first.")
+        sys.exit("No demos found in data/raw/ — drop a .dem (or .rar) there first.")
 
-    frames = []
+    CACHE.mkdir(parents=True, exist_ok=True)
+
     for demo in demos:
+        cache_file = CACHE / f"{demo.stem}.parquet"
+        if cache_file.exists():
+            print(f"• {demo.name} — cached, skip")
+            continue
         print(f"→ {demo.name} ...", end=" ", flush=True)
         try:
             snaps = build_round_snapshots(demo)
@@ -35,21 +50,24 @@ def main(argv: list[str]) -> None:
             print(f"FAILED ({e})")
             continue
         if snaps.height == 0:
-            print("no rounds")
+            print("no rounds (skipped)")
             continue
-        frames.append(snaps)
+        snaps.write_parquet(cache_file)
         print(f"{snaps.height} snapshots, {snaps['round_idx'].n_unique()} rounds")
+        if purge and demo.exists():
+            demo.unlink()
+            print(f"    purged raw demo ({demo.name})")
 
-    if not frames:
+    # Merge every cached per-demo table into the combined dataset.
+    cached = sorted(CACHE.glob("*.parquet"))
+    if not cached:
         sys.exit("No snapshots produced.")
+    combined = pl.concat([pl.read_parquet(p) for p in cached], how="vertical")
+    combined.write_parquet(COMBINED)
 
-    combined = pl.concat(frames, how="vertical")
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    combined.write_parquet(OUT)
-
-    print(f"\nSaved {combined.height} snapshots from {len(frames)} demo(s) → {OUT}")
-    ct_winrate = combined["ct_win"].mean()
-    print(f"CT win rate in labels: {ct_winrate:.1%}")
+    print(f"\nCombined: {combined.height} snapshots from {len(cached)} demo(s) "
+          f"→ {COMBINED}")
+    print(f"CT win rate in labels: {combined['ct_win'].mean():.1%}")
 
 
 if __name__ == "__main__":
