@@ -23,9 +23,11 @@ import polars as pl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from cs2wpa.snapshots import build_round_snapshots  # noqa: E402
+from cs2wpa.wpa import extract_kill_states  # noqa: E402
 
 RAW = Path("data/raw")
 CACHE = Path("data/processed/snapshots")
+KILLS = Path("data/processed/kills")
 COMBINED = Path("data/processed/snapshots.parquet")
 
 
@@ -37,6 +39,7 @@ def main(argv: list[str]) -> None:
         sys.exit("No demos found in data/raw/ — drop a .dem (or .rar) there first.")
 
     CACHE.mkdir(parents=True, exist_ok=True)
+    KILLS.mkdir(parents=True, exist_ok=True)
 
     for demo in demos:
         cache_file = CACHE / f"{demo.stem}.parquet"
@@ -46,6 +49,9 @@ def main(argv: list[str]) -> None:
         print(f"→ {demo.name} ...", end=" ", flush=True)
         try:
             snaps = build_round_snapshots(demo)
+            # Extract WPA kill-states in the same pass so we never need the demo
+            # again (win-prob model applies to these later — see compute_wpa.py).
+            kill_states = extract_kill_states(demo)
         except Exception as e:  # keep going if one demo is corrupt
             print(f"FAILED ({e})")
             continue
@@ -53,7 +59,10 @@ def main(argv: list[str]) -> None:
             print("no rounds (skipped)")
             continue
         snaps.write_parquet(cache_file)
-        print(f"{snaps.height} snapshots, {snaps['round_idx'].n_unique()} rounds")
+        if kill_states.height:
+            kill_states.write_parquet(KILLS / f"{demo.stem}.parquet")
+        print(f"{snaps.height} snapshots, {snaps['round_idx'].n_unique()} rounds, "
+              f"{kill_states.height // 2} kills")
         if purge and demo.exists():
             demo.unlink()
             print(f"    purged raw demo ({demo.name})")

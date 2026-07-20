@@ -110,6 +110,40 @@ def _sample_ticks(windows: list[dict]) -> list[int]:
     return sorted(ticks)
 
 
+def aggregate_sides(ticks: pl.DataFrame) -> pl.DataFrame:
+    """
+    Collapse per-player tick rows into one row per tick with side-split columns:
+    alive/hp/money/equip for T (team_num 2) and CT (team_num 3). Shared by the
+    snapshot builder and the WPA engine so both describe state identically.
+    """
+    ticks = ticks.filter(pl.col("team_num").is_in([2, 3]))
+    agg = (
+        ticks.group_by(["tick", "team_num"])
+        .agg(
+            alive=pl.col("is_alive").sum(),
+            hp=pl.when(pl.col("is_alive")).then(pl.col("health")).otherwise(0).sum(),
+            money=pl.col("balance").sum(),
+            equip=pl.col("current_equip_value").sum(),
+        )
+    )
+    t = agg.filter(pl.col("team_num") == 2).drop("team_num")
+    ct = agg.filter(pl.col("team_num") == 3).drop("team_num")
+    return (
+        t.rename({c: f"{c}_t" for c in ["alive", "hp", "money", "equip"]})
+        .join(
+            ct.rename({c: f"{c}_ct" for c in ["alive", "hp", "money", "equip"]}),
+            on="tick", how="inner",
+        )
+    )
+
+
+def round_windows(demo_path: str | Path):
+    """Public helper: parse a demo's round windows (start/end tick, ct_win, plant).
+    Used by the WPA engine, which needs the same round segmentation as snapshots."""
+    parser = DemoParser(str(demo_path))
+    return parser, _round_windows(_events(parser))
+
+
 def build_round_snapshots(demo_path: str | Path) -> pl.DataFrame:
     demo = Path(demo_path)
     parser = DemoParser(str(demo))
@@ -122,28 +156,7 @@ def build_round_snapshots(demo_path: str | Path) -> pl.DataFrame:
     sample_ticks = _sample_ticks(windows)
     ticks = parser.parse_ticks(TICK_PROPS, ticks=sample_ticks)
     ticks = ticks if isinstance(ticks, pl.DataFrame) else pl.from_pandas(ticks)
-
-    # Aggregate per (tick, side): alive count, total HP, team money, team equip.
-    ticks = ticks.filter(pl.col("team_num").is_in([2, 3]))
-    agg = (
-        ticks.group_by(["tick", "team_num"])
-        .agg(
-            alive=pl.col("is_alive").sum(),
-            hp=pl.when(pl.col("is_alive")).then(pl.col("health")).otherwise(0).sum(),
-            money=pl.col("balance").sum(),
-            equip=pl.col("current_equip_value").sum(),
-        )
-    )
-    # Pivot sides into columns: *_t (team_num 2) and *_ct (team_num 3).
-    t = agg.filter(pl.col("team_num") == 2).drop("team_num")
-    ct = agg.filter(pl.col("team_num") == 3).drop("team_num")
-    wide = (
-        t.rename({c: f"{c}_t" for c in ["alive", "hp", "money", "equip"]})
-        .join(
-            ct.rename({c: f"{c}_ct" for c in ["alive", "hp", "money", "equip"]}),
-            on="tick", how="inner",
-        )
-    )
+    wide = aggregate_sides(ticks)
 
     # Build one snapshot table by stitching each round's sampled ticks onto its
     # window metadata (score, timing, plant, label).

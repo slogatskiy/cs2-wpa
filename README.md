@@ -13,12 +13,13 @@ Counter-Strike") to CS2's new demo format, volumetric smokes, and sub-tick.
 |------|------|--------|
 | **0** | Parse a `.dem` into event + per-tick tables | ✅ done |
 | **1A** | Build round *snapshots* (game state → round winner) | ✅ done |
-| **1B** | Win-probability model (LightGBM) + calibration | ✅ code done · awaiting pro-demo batch |
-| **2** | WPA — attribute Δ win-prob to player actions | 🔜 next |
-| **3** | Streamlit dashboard + writeup | planned |
+| **1B** | Win-probability model (LightGBM) + calibration | ✅ done · AUC 0.81, calibrated on 31 major maps |
+| **2** | WPA — attribute Δ win-prob to player actions | ✅ engine done |
+| **3** | Streamlit dashboard + writeup | 🔜 next |
 
-> **Status:** pipeline verified end-to-end on a sample demo. Next step is a batch
-> of ~50-100 HLTV pro maps to train and calibrate the model for real, then WPA.
+> **Status:** trained on 31 IEM Cologne Major 2026 maps (62k snapshots). Win-prob
+> AUC 0.81, log-loss 0.61 (below base rate — properly calibrated). WPA engine
+> scores per-kill win-probability swings and ranks players; run `compute_wpa.py`.
 
 ## Layout
 
