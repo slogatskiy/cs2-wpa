@@ -39,15 +39,34 @@ TICK_PROPS = [
 
 
 def _events(parser: DemoParser) -> dict[str, pl.DataFrame]:
-    """Parse the events we need, each as a polars frame (empty frame if absent)."""
+    """
+    Parse the events we need, each as a polars frame (empty frame if absent).
+
+    NOTE: we do NOT filter by parser.list_game_events() — on pro GOTV demos that
+    list omits events (e.g. round_end) that parse_event happily returns. So we
+    just try each event directly and swallow failures.
+    """
     wanted = ["round_freeze_end", "round_end", "bomb_planted"]
-    present = [e for e in wanted if e in parser.list_game_events()]
     out: dict[str, pl.DataFrame] = {}
-    for name, df in parser.parse_events(present):
-        out[name] = df if isinstance(df, pl.DataFrame) else pl.from_pandas(df)
     for name in wanted:
-        out.setdefault(name, pl.DataFrame({"tick": []}))
+        try:
+            df = parser.parse_event(name)
+            out[name] = df if isinstance(df, pl.DataFrame) else pl.from_pandas(df)
+        except Exception:
+            out[name] = pl.DataFrame({"tick": []})
+        if out[name].height == 0:
+            out[name] = pl.DataFrame({"tick": []})
     return out
+
+
+def _winner_is_ct(winner) -> bool:
+    """
+    Normalise a round_end winner to 'did CT win'. Schema varies by demo source:
+    pro GOTV demos use strings ('CT'/'T'), others use ints (3 = CT, 2 = T).
+    """
+    if isinstance(winner, str):
+        return winner.strip().upper() == "CT"
+    return int(winner) == 3
 
 
 def _round_windows(ev: dict[str, pl.DataFrame]) -> list[dict]:
@@ -57,14 +76,17 @@ def _round_windows(ev: dict[str, pl.DataFrame]) -> list[dict]:
     Returns one dict per round: {start_tick, end_tick, winner, plant_tick|None}.
     Score going into the round is computed by the caller so it can stay ordered.
     """
-    freeze_ends = sorted(int(t) for t in ev["round_freeze_end"]["tick"].to_list())
-    ends = ev["round_end"].sort("tick")
-    plants = sorted(int(t) for t in ev["bomb_planted"]["tick"].to_list())
+    # Some pro demos carry stray event rows with null tick/winner — drop them.
+    freeze_ends = sorted(int(t) for t in ev["round_freeze_end"]["tick"].to_list()
+                         if t is not None)
+    plants = sorted(int(t) for t in ev["bomb_planted"]["tick"].to_list()
+                    if t is not None)
+    ends = ev["round_end"].drop_nulls(["tick", "winner"]).sort("tick")
 
     windows: list[dict] = []
     for row in ends.iter_rows(named=True):
         end_tick = int(row["tick"])
-        winner = int(row["winner"])
+        ct_win = _winner_is_ct(row["winner"])
         # start = latest freeze-end strictly before this round_end
         starts_before = [t for t in freeze_ends if t < end_tick]
         if not starts_before:
@@ -74,7 +96,7 @@ def _round_windows(ev: dict[str, pl.DataFrame]) -> list[dict]:
         plant = next((t for t in plants if start_tick <= t <= end_tick), None)
         windows.append(
             {"start_tick": start_tick, "end_tick": end_tick,
-             "winner": winner, "plant_tick": plant}
+             "ct_win": ct_win, "plant_tick": plant}
         )
     return windows
 
@@ -132,8 +154,8 @@ def build_round_snapshots(demo_path: str | Path) -> pl.DataFrame:
             (pl.col("tick") >= w["start_tick"]) & (pl.col("tick") <= w["end_tick"])
         ).sort("tick")
         if in_round.height == 0:
-            ct_score += w["winner"] == 3
-            t_score += w["winner"] == 2
+            ct_score += w["ct_win"]
+            t_score += not w["ct_win"]
             continue
 
         planted = (
@@ -148,11 +170,11 @@ def build_round_snapshots(demo_path: str | Path) -> pl.DataFrame:
             ct_score_pre=pl.lit(ct_score),
             t_score_pre=pl.lit(t_score),
             bomb_planted=planted.cast(pl.Int8),
-            ct_win=pl.lit(int(w["winner"] == 3)),
+            ct_win=pl.lit(int(w["ct_win"])),
         )
         rows.append(in_round)
-        ct_score += w["winner"] == 3
-        t_score += w["winner"] == 2
+        ct_score += w["ct_win"]
+        t_score += not w["ct_win"]
 
     if not rows:
         return pl.DataFrame()
@@ -160,8 +182,11 @@ def build_round_snapshots(demo_path: str | Path) -> pl.DataFrame:
     snaps = pl.concat(rows)
     snaps = snaps.with_columns(
         seconds_remaining=(ROUND_SECONDS - pl.col("seconds_elapsed")).clip(lower_bound=0),
-        alive_diff=(pl.col("alive_ct") - pl.col("alive_t")),
-        hp_diff=(pl.col("hp_ct") - pl.col("hp_t")),
+        # cast to signed first: alive_* are u32, so ct - t underflows to a huge
+        # positive number whenever T is ahead. This silently corrupted every
+        # CT-disadvantage snapshot until caught on real data.
+        alive_diff=(pl.col("alive_ct").cast(pl.Int32) - pl.col("alive_t").cast(pl.Int32)),
+        hp_diff=(pl.col("hp_ct").cast(pl.Int32) - pl.col("hp_t").cast(pl.Int32)),
         equip_diff=(pl.col("equip_ct") - pl.col("equip_t")),
         demo=pl.lit(demo.stem),
     )

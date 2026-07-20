@@ -14,3 +14,5 @@ data/processed/
 models/
 reports/
 data/raw/_unpack/
+data/raw/*.rar
+data/raw/*.zip

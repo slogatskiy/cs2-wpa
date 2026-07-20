@@ -83,7 +83,13 @@ def train_winprob(snapshots: pl.DataFrame, test_size: float = 0.25,
 
 
 def feature_importance(model: LGBMClassifier) -> pl.DataFrame:
+    """
+    Gain-based importance (total loss reduction), normalised to %. Unlike the
+    default split-count importance, gain isn't biased toward high-cardinality
+    continuous features — so integer state like alive-count shows its true weight.
+    """
+    gain = model.booster_.feature_importance(importance_type="gain")
     return (
-        pl.DataFrame({"feature": FEATURES, "importance": model.feature_importances_})
-        .sort("importance", descending=True)
+        pl.DataFrame({"feature": FEATURES, "gain_pct": 100 * gain / gain.sum()})
+        .sort("gain_pct", descending=True)
     )
