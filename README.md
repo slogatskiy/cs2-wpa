@@ -14,12 +14,13 @@ Counter-Strike") to CS2's new demo format, volumetric smokes, and sub-tick.
 | **0** | Parse a `.dem` into event + per-tick tables | ✅ done |
 | **1A** | Build round *snapshots* (game state → round winner) | ✅ done |
 | **1B** | Win-probability model (LightGBM) + calibration | ✅ done · AUC 0.81, calibrated on 31 major maps |
-| **2** | WPA — attribute Δ win-prob to player actions | ✅ engine done |
-| **3** | Streamlit dashboard + writeup | 🔜 next |
+| **2** | WPA — attribute Δ win-prob to player actions | ✅ done |
+| **3** | Streamlit dashboard | ✅ done |
 
 > **Status:** trained on 31 IEM Cologne Major 2026 maps (62k snapshots). Win-prob
-> AUC 0.81, log-loss 0.61 (below base rate — properly calibrated). WPA engine
-> scores per-kill win-probability swings and ranks players; run `compute_wpa.py`.
+> AUC 0.81, log-loss 0.61 (below base rate — properly calibrated). WPA leaderboard
+> in [results/](results/wpa_leaderboard.md) (top: m0NESY, donk, kyousuke). Dashboard:
+> `streamlit run app/dashboard.py` — leaderboard + live per-round win-prob curve.
 
 ## Layout
 

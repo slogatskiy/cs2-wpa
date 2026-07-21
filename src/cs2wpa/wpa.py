@@ -83,7 +83,7 @@ def extract_kill_states(demo_path: str | Path) -> pl.DataFrame:
         if rnd is None:
             continue
         kills.append({
-            "kill_id": len(kills), "tick": k, "round_idx": rnd["round_idx"],
+            "kill_id": len(kills), "tick": k, "kill_tick": k, "round_idx": rnd["round_idx"],
             "start_tick": rnd["start_tick"], "plant_tick": rnd["plant_tick"],
             "ct_score_pre": rnd["ct_score_pre"], "t_score_pre": rnd["t_score_pre"],
             "attacker_steamid": str(row["attacker_steamid"]), "attacker_name": row["attacker_name"],
@@ -114,7 +114,7 @@ def extract_kill_states(demo_path: str | Path) -> pl.DataFrame:
         )
     ).select(["kill_id", "killer_side"])
 
-    keep = ["kill_id", "role", "round_idx", "tick", "attacker_name",
+    keep = ["kill_id", "role", "round_idx", "kill_tick", "attacker_name",
             "attacker_steamid", "victim_name", "weapon", *FEATURES]
     return feats.select(keep).join(killer_side, on="kill_id", how="inner").with_columns(
         demo=pl.lit(demo.stem)
@@ -137,7 +137,7 @@ def score_wpa(kill_states: pl.DataFrame, model) -> pl.DataFrame:
     piv = scored.select(["uid", "role", "wp_ct"]).pivot(
         values="wp_ct", index="uid", on="role")
     info = (scored.filter(pl.col("role") == "after")
-            .select(["uid", "round_idx", "attacker_name", "attacker_steamid",
+            .select(["uid", "round_idx", "kill_tick", "attacker_name", "attacker_steamid",
                      "victim_name", "weapon", "killer_side", "demo"]))
     out = info.join(piv, on="uid", how="inner").drop_nulls(["before", "after", "killer_side"])
 
