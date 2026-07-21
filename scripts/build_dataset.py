@@ -43,26 +43,30 @@ def main(argv: list[str]) -> None:
 
     for demo in demos:
         cache_file = CACHE / f"{demo.stem}.parquet"
-        if cache_file.exists():
+        kills_file = KILLS / f"{demo.stem}.parquet"
+        # Snapshots and kill-states are cached independently: a demo parsed before
+        # kill-caching existed has snapshots but no kills, so only skip when BOTH
+        # are present. Otherwise re-parse to fill whichever is missing.
+        if cache_file.exists() and kills_file.exists():
             print(f"• {demo.name} — cached, skip")
             continue
         print(f"→ {demo.name} ...", end=" ", flush=True)
         try:
-            snaps = build_round_snapshots(demo)
-            # Extract WPA kill-states in the same pass so we never need the demo
-            # again (win-prob model applies to these later — see compute_wpa.py).
-            kill_states = extract_kill_states(demo)
+            snaps = build_round_snapshots(demo) if not cache_file.exists() else None
+            kill_states = extract_kill_states(demo) if not kills_file.exists() else None
         except Exception as e:  # keep going if one demo is corrupt
             print(f"FAILED ({e})")
             continue
-        if snaps.height == 0:
-            print("no rounds (skipped)")
-            continue
-        snaps.write_parquet(cache_file)
-        if kill_states.height:
-            kill_states.write_parquet(KILLS / f"{demo.stem}.parquet")
-        print(f"{snaps.height} snapshots, {snaps['round_idx'].n_unique()} rounds, "
-              f"{kill_states.height // 2} kills")
+        if snaps is not None:
+            if snaps.height == 0:
+                print("no rounds (skipped)")
+                continue
+            snaps.write_parquet(cache_file)
+        if kill_states is not None and kill_states.height:
+            kill_states.write_parquet(kills_file)
+        n_snap = snaps.height if snaps is not None else "cached"
+        n_kills = (kill_states.height // 2) if kill_states is not None else "cached"
+        print(f"{n_snap} snapshots, {n_kills} kills")
         if purge and demo.exists():
             demo.unlink()
             print(f"    purged raw demo ({demo.name})")

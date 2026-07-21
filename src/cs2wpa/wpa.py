@@ -127,14 +127,19 @@ def score_wpa(kill_states: pl.DataFrame, model) -> pl.DataFrame:
     if kill_states.height == 0:
         return pl.DataFrame()
     X = kill_states.select(FEATURES).to_numpy()
-    scored = kill_states.with_columns(wp_ct=pl.Series(model.predict_proba(X)[:, 1]))
+    scored = kill_states.with_columns(
+        wp_ct=pl.Series(model.predict_proba(X)[:, 1]),
+        # kill_id restarts at 0 per demo, so make a globally-unique key before
+        # pivoting across many maps.
+        uid=pl.col("demo") + "#" + pl.col("kill_id").cast(pl.Utf8),
+    )
 
-    piv = scored.select(["kill_id", "role", "wp_ct"]).pivot(
-        values="wp_ct", index="kill_id", on="role")
+    piv = scored.select(["uid", "role", "wp_ct"]).pivot(
+        values="wp_ct", index="uid", on="role")
     info = (scored.filter(pl.col("role") == "after")
-            .select(["kill_id", "round_idx", "attacker_name", "attacker_steamid",
+            .select(["uid", "round_idx", "attacker_name", "attacker_steamid",
                      "victim_name", "weapon", "killer_side", "demo"]))
-    out = info.join(piv, on="kill_id", how="inner").drop_nulls(["before", "after", "killer_side"])
+    out = info.join(piv, on="uid", how="inner").drop_nulls(["before", "after", "killer_side"])
 
     # CT kill (side 3): swing_ct is the gain. T kill (side 2): killer earns the drop.
     swing_ct = pl.col("after") - pl.col("before")
